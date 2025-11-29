@@ -14,13 +14,29 @@ jobs:
       packages: write
 
     steps:
-      # 0. Force Lowercase (GHCR requirement)
+      # 0. Set Image Name (Force Lowercase)
       - name: Set Image Name
         run: |
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           echo "IMAGE_NAME=ghcr.io/${OWNER}/android-dev-space:latest" >> $GITHUB_ENV
 
-      # 1. Login GHCR
+      # 1. 🧹 BERSIH-BERSIH STORAGE (WAJIB DI AWAL)
+      - name: 🧹 Free Disk Space (Maximize Storage)
+        run: |
+          echo "💾 Storage Sebelum Diet:"
+          df -h
+          
+          # Hapus sampah bawaan GitHub runner
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/share/swift
+          sudo docker image prune --all --force
+          
+          echo "💾 Storage Setelah Diet:"
+          df -h
+
+      # 2. Login GHCR
       - name: Login GHCR
         uses: docker/login-action@v3
         with:
@@ -28,12 +44,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 2. Load/New Game
+      # 3. Load Save / New Game
       - name: Load Save Data
         run: |
           if docker manifest inspect $IMAGE_NAME > /dev/null 2>&1; then
-            echo "✅ SAVE DATA DITEMUKAN!"
+            echo "✅ SAVE DATA DITEMUKAN! Loading container..."
             docker pull $IMAGE_NAME
+            
+            # --- LOAD GAME ---
             docker run -d \
               --name $CONTAINER_NAME \
               -p 8080:8080 \
@@ -42,10 +60,13 @@ jobs:
               --shm-size="2g" \
               --hostname="NetSec-God-Box" \
               -e TZ="Asia/Jakarta" \
-              -e PASSWORD="${{ secrets.VSCODE_PASS }}" \
+              -v /var/run/docker.sock:/var/run/docker.sock \
               $IMAGE_NAME
+              
           else
-            echo "🆕 NEW GAME..."
+            echo "🆕 SAVE DATA KOSONG. New Game..."
+            
+            # --- NEW GAME ---
             docker run -d \
               --name $CONTAINER_NAME \
               -p 8080:8080 \
@@ -55,11 +76,43 @@ jobs:
               --hostname="NetSec-God-Box" \
               -e TZ="Asia/Jakarta" \
               -e PASSWORD="${{ secrets.VSCODE_PASS }}" \
+              -v /var/run/docker.sock:/var/run/docker.sock \
               codercom/code-server:latest
             
+            # Install tools dasar
+            echo "Installing basic tools..."
             docker exec $CONTAINER_NAME sudo apt-get update
-            docker exec $CONTAINER_NAME sudo apt-get install -y git nodejs npm curl
+            docker exec $CONTAINER_NAME sudo apt-get install -y git nodejs npm curl docker.io
+            # Fix permission socket di dalem container
+            docker exec $CONTAINER_NAME sudo chmod 666 /var/run/docker.sock
           fi
+
+      # 4. Install & Start Cloudflare Tunnel (Manual Binary)
+      - name: Install & Start Tunnel
+        run: |
+          echo "⬇️ Downloading Cloudflared..."
+          curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared.deb
+
+          echo "🚇 Starting Tunnel..."
+          # Tunnel HTTP buat VS Code
+          cloudflared tunnel run --token ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }} --url http://localhost:8080 > tunnel.log 2>&1 &
+
+      # 5. Sesi Aktif (5 Jam)
+      - name: ⏳ Sesi Aktif (5 Jam)
+        continue-on-error: true
+        run: |
+          echo "🚀 LINK AKSES: https://vscode.domain-lu.com"
+          sleep 18000 # 5 Jam
+
+      # 6. Auto Save (Jalan Terus)
+      - name: 💾 SAVE GAME (Commit & Push)
+        if: always()
+        run: |
+          echo "💾 Menyimpan progress..."
+          docker commit $CONTAINER_NAME $IMAGE_NAME
+          docker push $IMAGE_NAME
+          echo "✅ Progress tersimpan!"          fi
 
       # 3. Cloudflare Tunnel (FIXED)
       - name: Start Tunnel
