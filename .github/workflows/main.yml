@@ -78,8 +78,8 @@ steps:
           -e TZ="Asia/Jakarta" \
           # ⚠️ Ganti port dari 8080 (VSCode) ke 5678 (n8n)
           # ⚠️ Ganti domain di bawah ini sesuai punya lu
-          -e N8N_HOST="n8n.domain-lu.com" \
-          -e WEBHOOK_URL="https://n8n.domain-lu.com/" \
+          -e N8N_HOST="n8n.ikhsantrx.web.id" \
+          -e WEBHOOK_URL="https://n8n.ikhsantrx.web.id" \
           -e N8N_BASIC_AUTH_ACTIVE=true \
           -e N8N_BASIC_AUTH_USER="justfish" \
           -e N8N_BASIC_AUTH_PASSWORD="${{ env.N8N_PASS }}" \
