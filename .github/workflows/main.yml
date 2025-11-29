@@ -6,6 +6,17 @@ on:
 env:
   CONTAINER_NAME: n8n-runner
   N8N_PORT: 5678
+  # Semua Env n8n kita taruh di sini biar konsisten
+  TZ: Asia/Jakarta
+  N8N_SECURE_COOKIE: 'false'
+  N8N_BASIC_AUTH_ACTIVE: 'true'
+  N8N_BASIC_AUTH_USER: ${{ secrets.N8N_USER }}
+  N8N_BASIC_AUTH_PASSWORD: ${{ secrets.N8N_PASS }}
+  N8N_HOST: 0.0.0.0
+  WEBHOOK_URL: https://${{ secrets.N8N_DOMAIN }}
+  N8N_EDITOR_BASE_URL: https://${{ secrets.N8N_DOMAIN }}
+  # Volume untuk data n8n
+  N8N_DATA_VOLUME: n8n_data
 
 jobs:
   start-n8n:
@@ -16,15 +27,15 @@ jobs:
 
     steps:
       # 0. Set Image Name (Force Lowercase)
-      - name: Set Image Name
+      - name: set image name
         run: |
-          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          echo "IMAGE_NAME=ghcr.io/${OWNER}/n8n-workspace:latest" >> $GITHUB_ENV
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_NAME=ghcr.io/${owner}/n8n-workspace:latest" >> $github_env
 
-      # 1. 🧹 Bersih-Bersih Storage
-      - name: 🧹 Free Disk Space
+      # 1. 🧹 bersih-bersih storage
+      - name: free disk space
         run: |
-          echo "💾 Storage Sebelum Diet:"
+          echo "💾 storage sebelum diet:"
           df -h
           
           sudo rm -rf /usr/share/dotnet
@@ -33,107 +44,108 @@ jobs:
           sudo rm -rf /usr/share/swift
           sudo docker image prune --all --force
           
-          echo "💾 Storage Setelah Diet:"
+          echo "💾 storage setelah diet:"
           df -h
 
-      # 2. Login GHCR
-      - name: Login GHCR
+      # 2. login ghcr
+      - name: login ghcr
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 3. Load Save / New Game
-      - name: 🎮 Load atau New Game
+      # 3. load save / new game
+      - name: load atau new game
         run: |
+          # buat volume biar data persisten
+          docker volume create $N8N_DATA_VOLUME
+          
           if docker manifest inspect $IMAGE_NAME > /dev/null 2>&1; then
-            echo "✅ SAVE DATA DITEMUKAN! Loading n8n workspace..."
+            echo "✅ save data ditemukan! loading n8n workspace..."
             docker pull $IMAGE_NAME
             
-            # --- LOAD GAME ---
+            # --- load game ---
             docker run -d \
               --name $CONTAINER_NAME \
               -p $N8N_PORT:5678 \
               --hostname="n8n-server" \
-              -e TZ="Asia/Jakarta" \
-              -e N8N_SECURE_COOKIE=false \
+              --env-file <(env | grep -e "^TZ=" -e "^N8N_") \
+              --mount type=volume,source=$N8N_DATA_VOLUME,target=/home/node/.n8n \
               $IMAGE_NAME
               
           else
-            echo "🆕 SAVE DATA KOSONG. Setup n8n baru..."
+            echo "🆕 save data kosong. setup n8n baru..."
             
-            # --- NEW GAME ---
+            # --- new game ---
             docker run -d \
               --name $CONTAINER_NAME \
               -p $N8N_PORT:5678 \
               --hostname="n8n-server" \
-              -e TZ="Asia/Jakarta" \
-              -e N8N_BASIC_AUTH_ACTIVE=true \
-              -e N8N_BASIC_AUTH_USER=${{ secrets.N8N_USER }} \
-              -e N8N_BASIC_AUTH_PASSWORD=${{ secrets.N8N_PASS }} \
-              -e N8N_SECURE_COOKIE=false \
-              -e N8N_HOST=0.0.0.0 \
-              -e WEBHOOK_URL=https://${{ secrets.N8N_DOMAIN }} \
-              -e N8N_EDITOR_BASE_URL=https://${{ secrets.N8N_DOMAIN }} \
+              --env-file <(env | grep -e "^TZ=" -e "^N8N_") \
+              --mount type=volume,source=$N8N_DATA_VOLUME,target=/home/node/.n8n \
               docker.n8n.io/n8nio/n8n:latest
             
-            echo "⏳ Waiting n8n to start..."
+            echo "⏳ waiting n8n to start..."
             sleep 15
             
-            # Check if running
+            # check if running
             docker logs $CONTAINER_NAME
           fi
           
-          echo "📦 Container status:"
+          echo "📦 container status:"
           docker ps
 
-      # 4. Install & Start Cloudflare Tunnel
-      - name: 🚇 Start Cloudflare Tunnel
+      # 4. install & start cloudflare tunnel
+      - name: start cloudflare tunnel
         run: |
-          echo "⬇️ Downloading Cloudflared..."
+          echo "⬇️ downloading cloudflared..."
           curl -L -o cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared.deb
 
-          echo "🚇 Starting Tunnel..."
+          echo "🚇 starting tunnel..."
           nohup cloudflared tunnel run --token ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }} > /dev/null 2>&1 &
           
           sleep 5
-          echo "✅ Tunnel connected!"
+          echo "✅ tunnel connected!"
 
-      # 5. Sesi Aktif (5 Jam)
-      - name: ⏳ Sesi Aktif (5 Jam)
+      # 5. sesi aktif (5 jam)
+      - name: sesi aktif (5 jam)
         continue-on-error: true
         run: |
           echo "=========================================="
-          echo "🚀 n8n READY!"
+          echo "🚀 n8n ready!"
           echo "=========================================="
           echo ""
-          echo "🌐 Access: https://${{ secrets.N8N_DOMAIN }}"
-          echo "👤 User: (check secrets N8N_USER)"
-          echo "🔑 Pass: (check secrets N8N_PASS)"
+          echo "🌐 access: https://${{ secrets.N8N_DOMAIN }}"
+          echo "👤 user: (check secrets n8n_user)"
+          echo "🔑 pass: (check secrets n8n_pass)"
           echo ""
-          echo "⏰ Session: 5 jam"
-          echo "💾 Auto-save saat selesai"
+          echo "⏰ session: 5 jam"
+          echo "💾 auto-save saat selesai"
           echo "=========================================="
           
-          # Keep alive + monitoring
+          # keep alive + monitoring
           for i in $(seq 1 300); do
-            echo "⏱️ Uptime: $((i * 60)) detik | Container: $(docker ps --filter name=$CONTAINER_NAME --format '{{.Status}}')"
+            echo "⏱️ uptime: $((i * 60)) detik | container: $(docker ps --filter name=$CONTAINER_NAME --format '{{.Status}}')"
             sleep 60
           done
 
-      # 6. Auto Save
-      - name: 💾 Save Progress
+      # 6. auto save
+      - name: save progress
         if: always()
         run: |
-          echo "💾 Menyimpan n8n workspace..."
+          echo "💾 menyimpan n8n workspace..."
           
-          # Commit dengan label biar ke-link ke repo
+          # commit the container data volume to the image
           docker commit \
-            --change='LABEL org.opencontainers.image.source=https://github.com/${{ github.repository }}' \
-            --change='LABEL org.opencontainers.image.description=n8n Automation Workspace' \
+            --change='label org.opencontainers.image.source=https://github.com/${{ github.repository }}' \
+            --change='label org.opencontainers.image.description=n8n automation workspace' \
+            --change='volume /home/node/.n8n' \
             $CONTAINER_NAME $IMAGE_NAME
           
           docker push $IMAGE_NAME
-          echo "✅ Progress tersimpan ke GHCR!"
+          
+          # clean up volume after saving
+          docker volume rm $N8N_DATA_VOLUME
+          echo "✅ progress tersimpan ke ghcr dan volume dibersihkan!"
