@@ -1,143 +1,89 @@
-# Nama Workflow lu (Bebas)
-name: 🚀 N8N Workflow Runner
+name: 'Jupyter-in-Docker via Cloudflare Tunnel'
 
-# Kapan workflow ini jalan (Contoh: Manual dari web atau setiap push)
 on:
+  # Lo bisa ganti trigger sesuai kebutuhan (misalnya: push ke main, atau manual dispatch)
   workflow_dispatch:
-  # push:
-  #   branches: [ main ]
+    inputs:
+      domain:
+        description: 'Subdomain yang akan digunakan (misal: jupyter.yourdomain.com)'
+        required: true
+        type: string
 
-# 💡 INI YANG HILANG! Semua langkah harus di bawah jobs.
 jobs:
-  # Nama Job lu (Bebas)
-  run-n8n:
-    # Runner yang dipakai
+  run-jupyter:
     runs-on: ubuntu-latest
+    
+    # Environment variables biar nggak ribet ganti-ganti
+    env:
+      CONTAINER_NAME: jupyter-lab
+      JUPYTER_PORT: 8888
 
-    # Di sini baru lu taro semua steps yang udah lu buat
     steps:
-      # 0. Set Image Name (Force Lowercase)
-      - name: Set Image Name
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Build and Run Docker Container (Jupyter Lab)
         run: |
-          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          # ⚠️ Ganti Image Name ke n8n punya lu
-          echo "IMAGE_NAME=ghcr.io/${OWNER}/n8n-workflow-space:latest" >> $GITHUB_ENV
-          echo "CONTAINER_NAME=n8n-server" >> $GITHUB_ENV
+          # 1. Build image Dockerfile (asumsi Dockerfile lo ada di root repo)
+          echo "Building Docker image..."
+          docker build -t jupyter-image .
           
-      # 1. 🔑 Generate Random Password (16 Karakter)
-      - name: Generate Random Password
-        id: password
-        run: |
-          # Generate random string (base64 12 byte = 16 char)
-          RANDOM_PASS=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 16)
-          echo "Generated Password: $RANDOM_PASS"
-          # Set sebagai output buat dipakai di step New Game
-          echo "random_password=$RANDOM_PASS" >> $GITHUB_OUTPUT
+          # 2. Run container. Jupyter biasanya jalan di port 8888.
+          #    --rm: hapus container setelah stop
+          #    -d: detach (jalan di background)
+          echo "Starting Jupyter container..."
+          docker run -d \
+            --name ${{ env.CONTAINER_NAME }} \
+            -p ${{ env.JUPYTER_PORT }}:${{ env.JUPYTER_PORT }} \
+            jupyter-image \
+            jupyter lab --ip=0.0.0.0 --allow-root --no-browser
           
-      # 2. 🧹 BERSIH-BERSIH STORAGE (WAJIB DI AWAL)
-      - name: 🧹 Free Disk Space (Maximize Storage)
-        run: |
-          echo "💾 Storage Sebelum Diet:"
-          df -h
-          
-          # Hapus sampah bawaan GitHub runner
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/share/swift
-          sudo docker image prune --all --force
-          
-          echo "💾 Storage Setelah Diet:"
-          df -h
-          
-      # 3. Login GHCR
-      - name: Login GHCR
-        uses: docker/login-action@v3
+          # 3. Tunggu sebentar biar Jupyter beneran up (opsional, tapi aman)
+          sleep 10
+          echo "Jupyter Lab container is running."
+
+      - name: Setup Cloudflare Tunnel (Tunneling Service)
+        uses: cloudflare/action-tunnel@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # Secret ini harus lo set di Settings -> Secrets
+          # CF_TUNNEL_TOKEN: Token Tunnel dari dashboard Cloudflare lo
+          token: ${{ secrets.CF_TUNNEL_TOKEN }}
+          # Domain yang diinput saat workflow dijalankan
+          hostname: ${{ github.event.inputs.domain }}
+          # Target traffic: arahin ke port container Jupyter yang sudah kita expose
+          url: http://localhost:${{ env.JUPYTER_PORT }}
           
-      # 4. Load Save / New Game
-      - name: Load Save Data
-        # Ambil random password dari step 'password'
-        env:
-          N8N_PASS: ${{ steps.password.outputs.random_password }}
+      - name: Get Jupyter Access Info
+        # Step ini penting buat lo tau URL dan token aksesnya
         run: |
-          # ⚠️ Pastikan IMAGE_NAME di step 0 udah lu ganti
-          if docker manifest inspect $IMAGE_NAME > /dev/null 2>&1; then
-            echo "✅ SAVE DATA DITEMUKAN! Loading n8n container..."
-            docker pull $IMAGE_NAME
-            
-            # --- LOAD GAME (Pakai n8n image yang udah di-save) ---
-            docker run -d \
-              --name ${{ env.CONTAINER_NAME }} \
-              -p 5678:5678 \
-              --restart=always \
-              --hostname="N8N-Workflow-God-Box" \
-              -e TZ="Asia/Jakarta" \
-              -e N8N_HOST="n8n.domain-lu.com" \
-              -e WEBHOOK_URL="https://n8n.domain-lu.com/" \
-              -e N8N_BASIC_AUTH_ACTIVE=true \
-              -e N8N_BASIC_AUTH_USER="justfish" \
-              -e N8N_BASIC_AUTH_PASSWORD="${{ env.N8N_PASS }}" \
-              $IMAGE_NAME
-              
+          echo "--- 🚀 Jupyter is now accessible via Cloudflare Tunnel 🚀 ---"
+          echo "URL Akses: https://${{ github.event.inputs.domain }}"
+          echo "---"
+          
+          # Ambil token dari logs container Jupyter
+          JUPYTER_LOG=$(docker logs ${{ env.CONTAINER_NAME }} 2>&1 | grep 'token=')
+          
+          if [[ $JUPYTER_LOG ]]; then
+            # Coba ambil token paling bawah/baru
+            JUPYTER_TOKEN=$(echo "$JUPYTER_LOG" | tail -n 1 | awk -F'token=' '{print $2}' | awk '{print $1}')
+            echo "Token Akses (Wajib!): ${JUPYTER_TOKEN}"
           else
-            echo "🆕 SAVE DATA KOSONG. New Game..."
-            
-            # --- NEW GAME (Pakai official n8nio/n8n:latest) ---
-            docker run -d \
-              --name ${{ env.CONTAINER_NAME }} \
-              -p 5678:5678 \
-              --restart=always \
-              --hostname="N8N-Workflow-God-Box" \
-              -e TZ="Asia/Jakarta" \
-              # ⚠️ Ganti port dari 8080 (VSCode) ke 5678 (n8n)
-              # ⚠️ Ganti domain di bawah ini sesuai punya lu
-              -e N8N_HOST="n8n.ikhsantrx.web.id" \
-              -e WEBHOOK_URL="https://n8n.ikhsantrx.web.id" \
-              -e N8N_BASIC_AUTH_ACTIVE=true \
-              -e N8N_BASIC_AUTH_USER="justfish" \
-              -e N8N_BASIC_AUTH_PASSWORD="${{ env.N8N_PASS }}" \
-              n8nio/n8n:latest
-              
+            echo "⚠️ Warning: Gagal otomatis ambil token. Cek logs container: docker logs ${{ env.CONTAINER_NAME }}"
           fi
           
-      # 5. Install & Start Cloudflare Tunnel (Manual Binary)
-      - name: Install & Start Tunnel
-        run: |
-          echo "⬇️ Downloading Cloudflared..."
-          curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-          sudo dpkg -i cloudflared.deb
-          
-          echo "🚇 Starting Tunnel..."
-          # Tunnel HTTP buat n8n (port 5678)
-          cloudflared tunnel run --token ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }} --url http://localhost:5678 > tunnel.log 2>&1 &
-          
-      # 6. Sesi Aktif (5 Jam)
-      - name: ⏳ Sesi Aktif (5 Jam)
-        continue-on-error: true
-        # Ambil random password dari step 'password'
-        env:
-          N8N_PASS: ${{ steps.password.outputs.random_password }}
-        run: |
-          # ⚠️ Ganti link akses lu di sini
-          echo "🚀 LINK AKSES N8N: https://n8n.ikhsantrx.web.id"
-          echo "👤 USERNAME: **justfish**"
-          echo "🔑 PASSWORD: **${{ env.N8N_PASS }}**"
           echo "---"
-          echo "⚠️ Catat password ini. Setelah sesi berakhir, password akan hilang!"
-          sleep 18000 # 5 Jam
+          echo "Container ini akan tetap berjalan selama GitHub Action ini berjalan."
+          echo "Lo bisa akses sekarang."
+
+      - name: Keep Tunnel Active (Hold the Action)
+        # Trik buat nahan workflow ini biar tunnel-nya nggak langsung mati
+        run: |
+          echo "Keeping tunnel active. Press Ctrl+C locally to stop."
+          # Tahan selama 6 jam (maksimal action runner)
+          sleep 6h
           
-      # 7. Auto Save (Jalan Terus)
-      - name: 💾 SAVE GAME (Commit & Push)
+      - name: Stop and Cleanup Container (After Action Finishes)
         if: always()
         run: |
-          echo "💾 Menyimpan progress..."
-          docker commit \
-            --change='LABEL org.opencontainers.image.source=https://github.com/${{ github.repository }}' \
-            ${{ env.CONTAINER_NAME }} ${{ env.IMAGE_NAME }}
-            
-          docker push ${{ env.IMAGE_NAME }}
-          echo "✅ Progress tersimpan!"
+          echo "Stopping Jupyter container..."
+          docker stop ${{ env.CONTAINER_NAME }} || true
