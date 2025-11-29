@@ -1,0 +1,92 @@
+name: Android Dev Abadi
+
+on:
+  workflow_dispatch:
+
+env:
+  CONTAINER_NAME: vscode-runner
+
+jobs:
+  start-coding:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # 0. Force Lowercase (GHCR requirement)
+      - name: Set Image Name
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_NAME=ghcr.io/${OWNER}/android-dev-space:latest" >> $GITHUB_ENV
+
+      # 1. Login GHCR
+      - name: Login GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 2. Load/New Game
+      - name: Load Save Data
+        run: |
+          if docker manifest inspect $IMAGE_NAME > /dev/null 2>&1; then
+            echo "✅ SAVE DATA DITEMUKAN!"
+            docker pull $IMAGE_NAME
+            docker run -d \
+              --name $CONTAINER_NAME \
+              -p 8080:8080 \
+              --privileged \
+              --device /dev/kvm \
+              --shm-size="2g" \
+              --hostname="NetSec-God-Box" \
+              -e TZ="Asia/Jakarta" \
+              -e PASSWORD="${{ secrets.VSCODE_PASS }}" \
+              $IMAGE_NAME
+          else
+            echo "🆕 NEW GAME..."
+            docker run -d \
+              --name $CONTAINER_NAME \
+              -p 8080:8080 \
+              --privileged \
+              --device /dev/kvm \
+              --shm-size="2g" \
+              --hostname="NetSec-God-Box" \
+              -e TZ="Asia/Jakarta" \
+              -e PASSWORD="${{ secrets.VSCODE_PASS }}" \
+              codercom/code-server:latest
+            
+            docker exec $CONTAINER_NAME sudo apt-get update
+            docker exec $CONTAINER_NAME sudo apt-get install -y git nodejs npm curl
+          fi
+
+      # 3. Cloudflare Tunnel (FIXED)
+      - name: Start Tunnel
+        run: |
+          curl -L -o cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared.deb
+          
+          # ✅ FIXED: Pakai token aja (URL udah diconfig di dashboard)
+          nohup cloudflared tunnel run --token ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }} > /dev/null 2>&1 &
+          
+          sleep 5
+          echo "✅ Tunnel started!"
+
+      # 4. Sesi Aktif
+      - name: ⏳ Sesi Aktif (5 Jam)
+        continue-on-error: true
+        run: |
+          echo "🚀 LINK: https://cspace.ikhsantrx.web.id"
+          sleep 18000
+
+      # 5. Save dengan Label (Auto-link ke repo)
+      - name: 💾 Save Progress
+        if: always()
+        run: |
+          docker commit \
+            --change='LABEL org.opencontainers.image.source=https://github.com/${{ github.repository }}' \
+            $CONTAINER_NAME $IMAGE_NAME
+          
+          docker push $IMAGE_NAME
+          echo "✅ Saved to GHCR (Public = Unlimited Storage)!"
