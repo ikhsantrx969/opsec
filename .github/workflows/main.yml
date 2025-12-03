@@ -23,7 +23,7 @@ jobs:
       - name: Commit & Push Random Message
         run: |
           git config --global user.name "cims969"
-          git config --global user.email "email_asli_lu@gmail.com"
+          git config --global user.email "vimsecc@proton.me"
           
           # Ini array pesan-pesan dewa tadi
           MSGS=(
