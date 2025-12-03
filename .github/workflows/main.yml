@@ -5,8 +5,8 @@ on:
     branches:
       - main
   schedule:
-    - cron: '*1* * * * *' # Jalan tiap 6 jam
-
+    - cron: '* * * * *'
+  
 jobs:
   auto_commit:
     runs-on: ubuntu-latest
