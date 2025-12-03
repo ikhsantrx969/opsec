@@ -5,7 +5,7 @@ on:
     branches:
       - main
   schedule:
-    - cron: '* * * * *' # Jalan tiap 6 jam
+    - cron: '*5 * * * *' # Jalan tiap 6 jam
 
 jobs:
   auto_commit:
